@@ -1,3 +1,4 @@
+
 " Title: hsftp
 " Description: Upload and download files through sftp
 " Usage: :Hupload and :Hdownload
@@ -10,127 +11,98 @@
 " License: MIT
 
 function! H_GetConf()
-  let conf = {}
+	let conf = {}
 
-  let l_configpath = expand('%:p:h')
-  let l_configfile = l_configpath . '/.hsftp'
-  let l_foundconfig = ''
-  if filereadable(l_configfile)
-    let l_foundconfig = l_configfile
-  else
-    while !filereadable(l_configfile)
-      let slashindex = strridx(l_configpath, '/')
-      if slashindex >= 0
-        let l_configpath = l_configpath[0:slashindex]
-        let l_configfile = l_configpath . '.hsftp'
-        let l_configpath = l_configpath[0:slashindex-1]
-        if filereadable(l_configfile)
-          let l_foundconfig = l_configfile
-          break
-        endif
-        if slashindex == 0 && !filereadable(l_configfile)
-          break
-        endif
-      else
-        break
-      endif
-    endwhile
-  endif
+	let l_configpath = expand('%:p:h')
+	let l_configfile = l_configpath . '/.hsftp'
+	let l_foundconfig = ''
+	if filereadable(l_configfile)
+		let l_foundconfig = l_configfile
+	else
+		while !filereadable(l_configfile)
+			let slashindex = strridx(l_configpath, '/')
+			if slashindex >= 0
+				let l_configpath = l_configpath[0:slashindex]
+				let l_configfile = l_configpath . '.hsftp'
+				let l_configpath = l_configpath[0:slashindex-1]
+				if filereadable(l_configfile)
+					let l_foundconfig = l_configfile
+					break
+				endif
+				if slashindex == 0 && !filereadable(l_configfile)
+					break
+				endif
+			else
+				break
+			endif
+		endwhile
+	endif
 
-  if strlen(l_foundconfig) > 0
-    let options = readfile(l_foundconfig)
-    for i in options
-      let vname = substitute(i[0:stridx(i, ' ')], '^\s*\(.\{-}\)\s*$', '\1', '')
-      let vvalue = escape(substitute(i[stridx(i, ' '):], '^\s*\(.\{-}\)\s*$', '\1', ''), "%#!")
-      let conf[vname] = vvalue
-    endfor
+	if strlen(l_foundconfig) > 0
+		let options = readfile(l_foundconfig)
+		for i in options
+			let vname = substitute(i[0:stridx(i, ' ')], '^\s*\(.\{-}\)\s*$', '\1', '')
+			let vvalue = escape(substitute(i[stridx(i, ' '):], '^\s*\(.\{-}\)\s*$', '\1', ''), "%#!")
+			let conf[vname] = vvalue
+		endfor
 
-    let conf['local'] = fnamemodify(l_foundconfig, ':h:p') . '/'
-    let conf['localpath'] = expand('%:p')
-    let conf['remotepath'] = conf['remote'] . conf['localpath'][strlen(conf['local']):]
-  endif
+		let conf['local'] = fnamemodify(l_foundconfig, ':h:p') . '/'
+		let conf['localpath'] = expand('%:p')
+		let conf['remotepath'] = conf['remote'] . conf['localpath'][strlen(conf['local']):]
+	endif
 
-  return conf
+	return conf
+endfunction
+
+function! H_Finished(channel)
+	echo 'Done!'
+endfunction
+
+function! H_OnUploadEvent(job_id, data, event) dict
+	if a:event == 'stderr'
+		echom '[❌] Upload error.'
+	else
+		echom '[✓] Finished uploading!'
+	endif
+endfunction
+
+function! H_DiffRemote()
+	let conf = H_GetConf()
+
+	if has_key(conf, 'host')
+		let cmd = printf('diffsplit scp://%s@%s/%s|windo wincmd H', conf['user'], conf['host'], conf['remotepath'])
+		silent execute cmd
+	endif
 endfunction
 
 function! H_DownloadFile()
-  let conf = H_GetConf()
+	let conf = H_GetConf()
 
-  if has_key(conf, 'host')
-    let action = printf('get %s %s', conf['remotepath'], conf['localpath'])
-    let cmd = printf('expect -c "set timeout 5; spawn sftp -P %s %s@%s; expect \"*assword:\"; send %s\r; expect \"sftp>\"; send \"%s\r\"; expect -re \"100%\"; send \"exit\r\";"', conf['port'], conf['user'], conf['host'], conf['pass'], action)
-
-
-    if conf['confirm_download'] == 1
-      let choice = confirm('Download file?', "&Yes\n&No", 2)
-      if choice != 1
-        echo 'Canceled.'
-        return
-      endif
-    endif
-
-    execute '!' . cmd
-  else
-    echo 'Could not find .hsftp config file'
-  endif
+	if has_key(conf, 'host')
+		let cmd = printf('1,$d|0Nr "sftp://%s@%s/%s"', conf['user'], conf['host'], conf['remotepath'])
+		echo printf('Downloading %s from %s...', conf['remotepath'], conf['host'])
+		silent execute cmd
+		echo 'Done! Saving...'
+		silent execute 'w'
+	endif
 endfunction
 
 function! H_UploadFile()
-  let conf = H_GetConf()
+	let conf = H_GetConf()
 
-  if has_key(conf, 'host')
-    let action = printf('put %s %s', conf['localpath'], conf['remotepath'])
-    let cmd = printf('expect -c "set timeout 5; spawn sftp -P %s %s@%s; expect \"*assword:\"; send %s\r; expect \"sftp>\"; send \"%s\r\"; expect -re \"100%\"; send \"exit\r\";"', conf['port'], conf['user'], conf['host'], conf['pass'], action)
-
-    if conf['confirm_upload'] == 1
-      let choice = confirm('Upload file?', "&Yes\n&No", 2)
-      if choice != 1
-        echo 'Canceled.'
-        return
-      endif
-    endif
-
-    execute '!' . cmd
-  else
-    echo 'Could not find .hsftp config file'
-  endif
+	if has_key(conf, 'host')
+		" let cmd = printf('Nw "sftp://%s@%s/%s"', conf['user'], conf['host'], conf['remotepath'])
+		echo printf('Start uploading %s...', conf['localpath'])
+		let cmd = printf('rsync -az %s %s@%s:%s', conf['localpath'], conf['user'], conf['host'], conf['remotepath'])
+		" silent execute cmd
+		call jobstart(cmd, {'on_stderr': function('H_OnUploadEvent'), 'on_exit': function('H_OnUploadEvent')})
+		" echo 'Done!'
+	endif
 endfunction
 
-function! H_UploadFolder()
-  let conf = H_GetConf()
-
-  " execute "! echo " . file
-  " let conf['localpath'] = expand('%:p')
-  let action = "send pwd\r;"
-  if has_key(conf, 'host')
-    for file in split(glob('%:p:h/*'), '\n')
-      let conf['localpath'] = file
-      let conf['remotepath'] = conf['remote'] . conf['localpath'][strlen(conf['local']):]
-  
-      if conf['confirm_upload'] == 1
-        let choice = confirm('Upload file?', "&Yes\n&No", 2)
-        if choice != 1
-          echo 'Canceled.'
-          return
-        endif
-      endif
-      let action = action . printf('expect \"sftp>\"; send \"put %s %s\r\";', conf['localpath'], conf['remotepath'])
-    endfor
-    " let cmd = printf('expect -c "set timeout 5; spawn sftp -P %s %s@%s; expect \"*assword:\"; send %s\r; expect \"sftp>\"; send \"%s\r\"; expect -re \"100%\"; send \"exit\r\";"', conf['port'], conf['user'], conf['host'], conf['pass'], action)
-
-    let cmd = printf('expect -c "set timeout 5; spawn sftp -P %s %s@%s; expect \"*assword:\"; send %s\r; %s expect -re \"100%\"; send \"exit\r\";"', conf['port'], conf['user'], conf['host'], conf['pass'], action)
-
-    execute '!' . cmd
-  else
-    echo 'Could not find .hsftp config file'
-  endif
-
-endfunction
-
+command! Hdiff call H_DiffRemote()
 command! Hdownload call H_DownloadFile()
 command! Hupload call H_UploadFile()
-command! Hupdir  call H_UploadFolder()
 
-nmap <leader>hsd :Hdownload<Esc>
-nmap <leader>hsu :Hupload<Esc>
-nmap <leader>hsf :Hupdir<Esc>
+nmap <leader>hsd :Hdownload<CR>
+nmap <leader>hsu :Hupload<CR>
