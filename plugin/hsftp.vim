@@ -74,7 +74,6 @@ function! H_DiffRemote()
 		silent execute cmd
 	endif
 endfunction
-
 function! H_DownloadFile()
 	let conf = H_GetConf()
 
@@ -96,7 +95,6 @@ function! H_UploadFile()
 		let cmd = printf('rsync -az %s %s@%s:%s', conf['localpath'], conf['user'], conf['host'], conf['remotepath'])
 		" silent execute cmd
 		call jobstart(cmd, {'on_stderr': function('H_OnUploadEvent'), 'on_exit': function('H_OnUploadEvent')})
-		" echo 'Done!'
 	endif
 endfunction
 
